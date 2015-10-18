@@ -27,43 +27,41 @@ import org.apache.flink.streaming.util.serialization.{DeserializationSchema, Ser
 
 object FlinkExample {
 
+  import WordCount._
+
+  val stopWords = Set("a", "an", "the")
+  val window = Time.of(10, TimeUnit.SECONDS)
+
   def main(args: Array[String]): Unit = {
     val env = StreamExecutionEnvironment.createLocalEnvironment()
 
-    val sourceProperties = Map(
+    val kafkaConsumerProperties = Map(
       "zookeeper.connect" -> "localhost:2181",
       "group.id" -> "flink",
       "bootstrap.servers" -> "localhost:9092"
     )
 
-    val linesStream = env.addSource(
-      new FlinkKafkaConsumer[String](
-        "input",
-        new KafkaStringSchema(),
-        sourceProperties,
-        OffsetStore.FLINK_ZOOKEEPER,
-        FetcherType.LEGACY_LOW_LEVEL)
+    val kafkaConsumer = new FlinkKafkaConsumer[String](
+      "input",
+      KafkaStringSchema,
+      kafkaConsumerProperties,
+      OffsetStore.FLINK_ZOOKEEPER,
+      FetcherType.LEGACY_LOW_LEVEL
     )
 
-    linesStream.map((_, 1))
+    val kafkaProducer = new FlinkKafkaProducer[String](
+      "localhost:9092",
+      "output",
+      KafkaStringSchema
+    )
 
-    val wordCountsStream = linesStream
-      .flatMap(line => line.split(" "))
-      .filter(word => !word.isEmpty)
-      .map(word => word.toLowerCase)
-      .map(word => (word, 1))
-      .keyBy(0)
-      .timeWindow(Time.of(10, TimeUnit.SECONDS))
-      .sum(1)
+    val lines = env.addSource(kafkaConsumer)
+
+    val wordCounts = countWords(lines, stopWords, window)
+
+    wordCounts
       .map(_.toString)
-
-    wordCountsStream.addSink(
-      new FlinkKafkaProducer[String](
-        "localhost:9092",
-        "output",
-        new KafkaStringSchema()
-      )
-    )
+      .addSink(kafkaProducer)
 
     env.execute()
   }
@@ -72,7 +70,7 @@ object FlinkExample {
     (new java.util.Properties /: map) { case (props, (k, v)) => props.put(k, v); props }
   }
 
-  class KafkaStringSchema extends SerializationSchema[String, Array[Byte]] with DeserializationSchema[String] {
+  object KafkaStringSchema extends SerializationSchema[String, Array[Byte]] with DeserializationSchema[String] {
 
     import org.apache.flink.api.common.typeinfo.TypeInformation
     import org.apache.flink.api.java.typeutils.TypeExtractor
