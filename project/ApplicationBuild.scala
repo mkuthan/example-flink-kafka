@@ -20,7 +20,7 @@ import sbt._
 object ApplicationBuild extends Build {
 
   object Versions {
-    val flink = "0.10-SNAPSHOT"
+    val flink = "0.10.1"
     val kafka = "0.8.2.1"
   }
 
